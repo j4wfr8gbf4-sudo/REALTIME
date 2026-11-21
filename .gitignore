@@ -1,0 +1,5 @@
+/.venv/
+/datos/
+/runtime/
+__pycache__/
+*.py[cod]

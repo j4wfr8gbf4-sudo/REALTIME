@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es-CL">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seguimiento de Turnos</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="title"><span class="logo" aria-hidden="true"></span><h1 id="page-title">Seguimiento de Turnos</h1></div>
+    <div id="work-toolbar" class="toolbar">
+      <a class="button quiet" href="/historial" target="_blank" rel="noopener">Historial <span class="sr-only">(abre otra pestaña)</span></a>
+      <button id="catalog-button" class="button quiet">Catálogo CNC</button>
+      <button id="export-button" class="button" disabled>Exportar a Excel</button>
+      <button id="import-button" class="button primary">Importar POD</button>
+      <input id="pod-file" type="file" accept=".xlsx,.xlsm" hidden>
+    </div>
+    <!-- El historial comparte el tablero y activa sus controles desde app.js. -->
+    <div id="history-toolbar" class="toolbar" hidden>
+      <span id="history-mode" role="status">Solo lectura</span>
+      <button id="history-toggle" class="button quiet" type="button" disabled>Activar edición</button>
+    </div>
+  </header>
+  <main>
+    <section class="panel" aria-label="Controles del tablero">
+      <div class="turn-line">
+        <label class="turn-control">Turno operativo <select id="turn-select" aria-label="Turno operativo"></select></label>
+        <span id="turn-window" class="muted"></span>
+        <span id="turn-source" class="source muted"></span>
+      </div>
+      <div id="filters" class="filters" hidden>
+        <div id="level-buttons" class="levels" aria-label="Filtrar por nivel"></div>
+        <label class="search"><span class="sr-only">Buscar frente</span><input id="front-search" type="search" placeholder="Buscar frente o macrobloque"></label>
+        <label class="check"><input id="show-plan" type="checkbox" checked> Plan</label>
+        <label class="check"><input id="show-real" type="checkbox" checked> Real</label>
+        <label class="check"><input id="show-sp" type="checkbox"> Incluir sin programa</label>
+        <label class="check"><input id="only-sp" type="checkbox"> Solo SP</label>
+      </div>
+    </section>
+    <div id="status" role="status" aria-live="polite"></div>
+    <section class="report" aria-label="Tablero Plan y Real">
+      <div id="empty">
+        <h2>Carga el programa de un turno</h2>
+        <p>Selecciona el POD para revisar los frentes y sus actividades planificadas.</p>
+      </div>
+      <div id="board-scroller" class="scroller" hidden>
+        <!-- app.js construye las filas Plan, Real y CNC del turno seleccionado. -->
+        <div id="board"></div>
+      </div>
+    </section>
+  </main>
+  <!-- El editor rápido se posiciona junto al intervalo seleccionado. -->
+  <form id="quick-activity" class="quick-activity" hidden>
+    <label id="quick-field" for="quick-code">Actividad</label>
+    <input id="quick-code" aria-describedby="quick-hint" autocomplete="off" spellcheck="false">
+    <span id="quick-hint">Tab = cambiar campo · Enter = guardar · Esc = cancelar</span>
+    <span id="quick-error" role="alert"></span>
+  </form>
+  <dialog id="dialog">
+    <div class="dialog-head"><h2 id="dialog-title"></h2><button id="dialog-close" class="icon" aria-label="Cerrar">×</button></div>
+    <div id="dialog-body"></div>
+    <p id="dialog-error" role="alert" hidden></p>
+  </dialog>
+</body>
+</html>
