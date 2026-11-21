@@ -1,5 +1,7 @@
 'use strict';
 
+// El mismo tablero sirve para el turno de trabajo y el historial.
+// La interfaz pide los datos a la API y vuelve a dibujar el turno tras guardar.
 const element = id => document.getElementById(id);
 const historyView = window.location.pathname === '/historial';
 // El servidor guarda los turnos. Este estado contiene la vista activa y sus controles.
@@ -28,6 +30,7 @@ function canEdit() {
   return !historyView || state.historyEditing;
 }
 
+// Escapa el texto del POD y de los formularios antes de insertarlo en una plantilla HTML.
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[char]);
 }
@@ -142,6 +145,7 @@ function render() {
   renderBoard();
 }
 
+// Los filtros cambian las filas visibles. El turno permanece completo en memoria.
 function renderBoard() {
   if (!state.turn) return;
   clearSelection();
@@ -291,6 +295,7 @@ function openModal(title, content) {
   if (!dialog.open) dialog.showModal();
 }
 
+// Bloquea envíos simultáneos y muestra los errores del servidor dentro del diálogo.
 function submitForm(action) {
   const form = formBody.querySelector('form');
   form.addEventListener('submit', async event => {
@@ -311,6 +316,7 @@ function submitForm(action) {
   });
 }
 
+// La etiqueta muestra la hora local. El valor enviado conserva los minutos operativos.
 function timeSelect(name, label, value) {
   const options = [];
   for (let minute = state.turn.start; minute <= state.turn.end; minute += SLOT) {
@@ -339,6 +345,7 @@ function removeEntry(front, field, entry) {
   submitForm(() => updateFront(front, 'remove_' + field, {id: entry.id}, 'Registro eliminado.'));
 }
 
+// Comparte los campos de Plan y Real. Al editar se mantiene el ID del bloque.
 function activityForm(front, field, options = {}) {
   const start = options.start ?? state.turn.start;
   const end = options.end ?? Math.min(start + SLOT, state.turn.end);
@@ -369,12 +376,14 @@ function activityForm(front, field, options = {}) {
   formBody.querySelector('[data-click="remove"]')?.addEventListener('click', () => removeEntry(front, field, entry));
 }
 
+// Desde una sugerencia se puede registrar el Real, descartar la diferencia o confirmar una CNC.
 function cncForm(front, options) {
   const {start, end, entry} = options;
   const selected = entry?.catalog;
   const label = item => escapeHtml(item.code + ' · ' + item.primary + ' · ' + item.secondary);
   const entries = state.catalog.filter(item => item.id !== selected).map(item =>
     `<option value="${item.id}">${label(item)}</option>`).join('');
+  // Una CNC existente muestra las clasificaciones guardadas con el registro.
   const original = entry ? `<option selected value="${escapeHtml(selected)}">${label(entry)} (registrada)</option>` : '';
   const hasCatalog = state.catalog.length || entry;
   const detail = options.detail ? `<p class="detail">${escapeHtml(options.detail)}</p>` : '';
@@ -510,6 +519,7 @@ board.addEventListener('click', event => {
   }
 });
 
+// Convierte la posición horizontal del puntero en un intervalo de la grilla.
 function slotAt(event, lane) {
   const rect = lane.getBoundingClientRect();
   const count = (state.turn.end - state.turn.start) / SLOT;
@@ -610,6 +620,7 @@ async function saveOnBoard(front, action, values, message) {
   const turn = state.turn.id;
   const sequence = state.turnRequest;
   const result = await post('/api/front', {turn, front: front.id, action, ...values});
+  // Aplica la respuesta al tablero solo si sigue mostrando la vista que inició el guardado.
   if (state.turn.id === turn && sequence === state.turnRequest && canEdit()) {
     setupTurn(result, message);
     return result;
@@ -725,11 +736,13 @@ board.addEventListener('pointerdown', event => {
   }
   selectRange(lane, start, entry);
   (control ?? lane).focus({preventScroll: true});
+  // Mantiene los eventos del gesto aunque el puntero salga del bloque seleccionado.
   (control ?? lane).setPointerCapture(event.pointerId);
   gesture = {pointerId: event.pointerId, lane, front: selection.front, field: lane.dataset.grid,
     entry, edge, offset: entry ? start - entry.start : 0, x: event.clientX, y: event.clientY, dragging: false};
 });
 
+// Arrastrar sobre un espacio vacío extiende la selección. Sobre un bloque muestra su destino.
 board.addEventListener('pointermove', event => {
   if (!gesture || gesture.pointerId !== event.pointerId) return;
   if (!gesture.entry) {
@@ -750,6 +763,7 @@ board.addEventListener('pointermove', event => {
   }
 });
 
+// Al soltar se envía la operación. El servidor valida horarios y solapamientos.
 board.addEventListener('pointerup', async event => {
   if (!gesture || gesture.pointerId !== event.pointerId) return;
   const source = gesture;
@@ -880,6 +894,7 @@ element('pod-file').addEventListener('change', async event => {
   }
 });
 
+// Carga el catálogo y la lista de turnos antes de abrir el registro más reciente.
 async function start() {
   if (historyView) {
     document.title = 'Historial de turnos';

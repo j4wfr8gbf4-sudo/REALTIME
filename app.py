@@ -1,3 +1,5 @@
+# Flujo del servidor local. Handler traduce las solicitudes HTTP y Service
+# modifica o consulta los turnos. Store persiste los cambios en SQLite.
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -33,8 +35,10 @@ class Service:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.store = Store(data_dir / 'turnos.sqlite3')
+        # Las peticiones se atienden en paralelo y comparten las vistas previas.
         self.previews = {}
         self.preview_lock = Lock()
+        # Serializa las exportaciones que atiende esta instancia del servidor.
         self.export_lock = Lock()
 
     def get_turn(self, db, key):
@@ -57,6 +61,7 @@ class Service:
                 'export_path': self.store.export_path(db) or str(self.data_dir / 'Seguimiento_Turnos.xlsx'),
             }
 
+    # Las sugerencias dependen de la hora actual y se recalculan al devolver el turno.
     def view(self, turn):
         return {'turn': turn, 'suggestions': suggestions(turn)}
 
@@ -65,6 +70,7 @@ class Service:
         # La vista previa vive en memoria hasta que el usuario confirma la fecha y el turno.
         token = uuid4().hex
         with self.preview_lock:
+            # Conserva hasta ocho vistas pendientes y retira primero la más antigua.
             if len(self.previews) >= 8:
                 self.previews.pop(next(iter(self.previews)))
             self.previews[token] = parsed
@@ -116,6 +122,7 @@ class Service:
                 start, end = range_of(turn, payload)
                 elapsed = now_minute(turn['day'])
                 for minute in range(start, end, 15):
+                    # Guarda qué diferencia se descartó en cada intervalo.
                     if state := slot_state(front, minute, elapsed):
                         front['dismissed'][str(minute)] = state['signature']
             elif action == 'remove_plan':
@@ -158,6 +165,7 @@ class Service:
         identifier = clean(payload.get('id'))
         original_front = source if source is not None else front
         original = self.activity(original_front, 'plan', identifier) if identifier else None
+        # Una edición parcial toma del registro anterior los campos que no se enviaron.
         start, end = range_of(turn, {**(original or {}), **payload})
         if any(row['id'] != identifier and overlap(row, start, end) for row in front['plan']):
             raise Problem('El rango está ocupado por otra actividad del Plan.', 409)
@@ -169,6 +177,7 @@ class Service:
         for kind, key in (('Equipo', 'equipment'), ('Cuadrilla', 'crew')):
             previous = [row for row in attached if row['type'] == kind]
             selected = codes(payload[key]) if key in payload else None
+            # Si se cambia el conjunto de recursos, los nuevos cubren el bloque completo.
             if selected is not None and set(selected) != {row['code'] for row in previous}:
                 front['assignments'].extend({'type': kind, 'code': value, 'start': start, 'end': end}
                                             for value in selected)
@@ -197,6 +206,7 @@ class Service:
         start = payload.get('start')
         if type(start) is not int:
             raise Problem('Selecciona una hora de inicio.')
+        # El navegador envía el nuevo inicio. El servidor calcula el término usando la duración original.
         end = start + entry['end'] - entry['start']
         values = {'start': start, 'end': end, 'code': entry['code']}
         if destination_field == 'plan':
@@ -213,6 +223,7 @@ class Service:
         if source is front:
             self.save_real(turn, front, {**values, 'id': entry['id']})
         else:
+            # El destino se valida antes de retirar la actividad de su frente original.
             moved = self.save_real(turn, front, values)
             moved['id'] = entry['id']
             source['real'].remove(entry)
@@ -265,6 +276,7 @@ class Service:
             catalog_id = existing.get('catalog')
         if entry is None:
             raise Problem('Selecciona una combinación de código y clasificaciones del catálogo.')
+        # Al confirmar una CNC nueva, su intervalo debe haber terminado.
         if not existing and end > now_minute(turn['day']):
             raise Problem('La CNC debe corresponder a bloques cuyo término ya pasó.')
         if any(row['id'] != identifier and overlap(row, start, end) for row in front['cnc']):
@@ -303,6 +315,7 @@ class Service:
         with self.export_lock:
             with self.store.connection() as db:
                 turn = self.get_turn(db, payload.get('turn'))
+            # Guarda la ruta como preferencia una vez que se escribió el libro.
             write_export(path, turn)
             with self.store.connection(write=True) as db:
                 self.store.save_export_path(db, path)
@@ -382,6 +395,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise Problem('Ruta no encontrada.', 404)
                 result = operation(self.get_payload())
             self.json_reply(200, result)
+        # Los errores previstos llevan su mensaje a la interfaz. Los fallos internos quedan en el registro.
         except Problem as exc:
             self.json_reply(exc.status, {'error': str(exc)})
         except (OSError, sqlite3.Error, ValueError):
@@ -403,6 +417,7 @@ def main():
     args = parser.parse_args()
     data_dir = args.datos.resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
+    # El servidor escucha en la interfaz local. El navegador usa la API de la misma dirección.
     with ThreadingHTTPServer(('127.0.0.1', args.puerto), Handler) as server:
         server.service = Service(data_dir)
         url = f'http://127.0.0.1:{server.server_port}'

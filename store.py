@@ -1,3 +1,5 @@
+# Persistencia en SQLite. Cada operación usa su propia conexión y puede
+# agrupar una lectura y sus escrituras en la misma transacción.
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
@@ -32,6 +34,7 @@ class Store:
             # Reserva la escritura antes de leer un turno que se va a modificar.
             if write:
                 db.execute('BEGIN IMMEDIATE')
+            # El bloque llamador usa la conexión. Sus cambios se confirman si termina bien.
             yield db
             db.commit()
         except BaseException:
@@ -72,12 +75,14 @@ class Store:
         row = db.execute('SELECT data FROM turns WHERE id = ?', (key,)).fetchone()
         return json.loads(row['data']) if row else None
 
+    # Actualiza el documento del turno si la clave ya existe, o crea uno nuevo.
     @staticmethod
     def save_turn(db, turn):
         db.execute("""INSERT INTO turns (id, day, kind, data) VALUES (?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET data=excluded.data""",
                    (turn['id'], turn['day'], turn['kind'], json.dumps(turn, ensure_ascii=False)))
 
+    # El selector del historial solo necesita el resumen de cada turno.
     @staticmethod
     def list_turns(db):
         return [dict(row) for row in db.execute('SELECT id, day, kind FROM turns ORDER BY day DESC, kind DESC')]

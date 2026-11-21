@@ -1,3 +1,5 @@
+# Reglas para identificar turnos, validar horarios y comparar lo programado
+# con lo ejecutado. Estas funciones operan sobre los datos del turno en memoria.
 from datetime import date, datetime, timedelta
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
@@ -26,10 +28,12 @@ def required(value, label):
     return value
 
 
+# Las mismas claves de un registro importado producen el mismo identificador.
 def entity_id(*parts):
     return uuid5(NAMESPACE_URL, repr(parts)).hex
 
 
+# Un turno queda identificado por su fecha operativa y por el tipo Día o Noche.
 def turn_id(day, kind):
     try:
         day = date.fromisoformat(day).isoformat()
@@ -40,11 +44,12 @@ def turn_id(day, kind):
     return f'{day}|{kind}'
 
 
-# Los minutos posteriores a 1440 se convierten a una fecha del día siguiente.
+# A partir del minuto 1440, el horario se convierte a una fecha del día siguiente.
 def wall_datetime(day, minute):
     return datetime.fromisoformat(day) + timedelta(minutes=minute)
 
 
+# Convierte la hora actual en Santiago a minutos de la misma escala que el Plan.
 def now_minute(day, now=None):
     local = (now or datetime.now(ZONE)).astimezone(ZONE).replace(tzinfo=None)
     return int((local - datetime.fromisoformat(day)).total_seconds() // 60)
@@ -58,6 +63,7 @@ def overlap(first, start, end):
 def codes(values):
     if not isinstance(values, list):
         raise Problem('Los recursos deben enviarse como lista.')
+    # Elimina duplicados y conserva el orden de ingreso.
     return list(dict.fromkeys(code for value in values if (code := clean(value))))
 
 
@@ -67,6 +73,7 @@ def range_of(turn, payload):
         raise Problem('Selecciona horas de inicio y término.')
     if not (turn['start'] <= start < end <= turn['end']):
         raise Problem('El rango debe estar dentro del turno y su término debe ser posterior al inicio.')
+    # Ambos extremos deben coincidir con una división de la grilla del turno.
     if (start - turn['start']) % SLOT or (end - turn['start']) % SLOT:
         raise Problem('Usa intervalos de 15 minutos.')
     return start, end
@@ -100,6 +107,7 @@ def assemble_turn(preview, day, kind, previous=None):
     for old in old_fronts.values():
         if old['real'] or old['cnc'] or old['closing']:
             fronts.append({**old, 'plan': [], 'assignments': [], 'expected': '', 'absent': True})
+    # Rechaza el reemplazo si sus límites dejarían fuera datos que ya estaban guardados.
     for front in fronts:
         for activity in front['real'] + front['cnc']:
             if activity['start'] < preview['start'] or activity['end'] > preview['end']:
@@ -112,12 +120,14 @@ def assemble_turn(preview, day, kind, previous=None):
 
 
 def slot_state(front, minute, elapsed):
+    # Una diferencia solo se revisa después de que termina el intervalo completo.
     if minute + SLOT > elapsed:
         return None
     expected = next((row for row in front['plan'] if overlap(row, minute, minute + SLOT)), None)
     if expected is None:
         return None
     actual = sorted({row['code'] for row in front['real'] if overlap(row, minute, minute + SLOT)})
+    # Basta con que una de las actividades reales coincida con la sigla esperada.
     if expected['code'] in actual:
         return None
     if any(overlap(row, minute, minute + SLOT) for row in front['cnc']):

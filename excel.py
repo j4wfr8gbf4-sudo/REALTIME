@@ -1,3 +1,5 @@
+# Entrada y salida de Excel. La importación lee el Plan de PROG. La
+# exportación reúne los registros de cada turno en cuatro tablas relacionadas.
 from datetime import datetime, time
 from io import BytesIO
 from pathlib import Path
@@ -86,6 +88,7 @@ def parse_pod(contents, filename):
         rows = list(sheet.iter_rows(max_row=min(sheet.max_row or MAX_ROWS, MAX_ROWS), max_col=34, values_only=True))
     finally:
         workbook.close()
+    # La posición del encabezado se detecta por las etiquetas de la plantilla.
     header = next((index for index, row in enumerate(rows[:40])
                    if clean(row[3]).upper() == 'FRENTE' and clean(row[5]).upper() == 'PROCESO'), None)
     if header is None:
@@ -144,12 +147,14 @@ def parse_pod(contents, filename):
             if any(values):
                 warnings.append(f'Fila {i}. Tipo de fila no reconocido y omitido.')
             current = None
+    # Sin frentes válidos, la vista previa se rechaza antes de guardar un turno.
     if not fronts:
         raise Problem('PROG no contiene frentes válidos para importar.')
     return {'kind': kind, 'day': suggest_day(filename), 'source': filename, 'start': start, 'end': end,
             'fronts': fronts, 'warnings': warnings}
 
 
+# Las cuatro hojas comparten estas columnas para relacionar sus registros.
 COMMON = ('ID turno', 'Fecha operativa', 'Turno', 'ID frente por turno')
 SHEETS = {
     'Frentes por turno': ('FrentesPorTurno', COMMON + (
@@ -197,12 +202,14 @@ def export_rows(turn):
                 rows['Actividades Plan y Real'].append(common + (
                     activity['id'], kind, activity['code'], wall_datetime(day, start),
                     wall_datetime(day, end), end - start))
+                # Los recursos de Real cubren todo el intervalo de la actividad.
                 if kind == 'Real':
                     for resource_type, key in (('Equipo', 'equipment'), ('Cuadrilla', 'crew')):
                         for code in activity[key]:
                             rows['Asignaciones'].append(common + (
                                 activity['id'], kind, resource_type, code,
                                 wall_datetime(day, start), wall_datetime(day, end)))
+        # En Plan, una asignación puede cubrir parte de una actividad o pasar por varias.
         for assignment in front['assignments']:
             for activity_id, start, end in assignment_spans(assignment, front['plan']):
                 rows['Asignaciones'].append(common + (
@@ -249,6 +256,7 @@ def replace_sheet_rows(sheet, table_name, headers, turn_key, new_rows):
             sheet.column_dimensions[get_column_letter(index)].width = max(18, min(34, len(header) + 5))
 
 
+# Comprueba que las hojas, encabezados y tablas correspondan a la base de la aplicación.
 def verify_schema(workbook):
     for name, (table_name, headers) in SHEETS.items():
         if name not in workbook.sheetnames:
